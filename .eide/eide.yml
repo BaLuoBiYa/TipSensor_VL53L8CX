@@ -44,25 +44,24 @@ targets:
             ASM_FLAGS: -DDEBUG
           beforeBuildTasks: []
           c/cpp-compiler:
-            CXX_FLAGS: ""
-            C_FLAGS: ""
             language-c: c11
             language-cpp: c++11
             one-elf-section-per-data: true
             one-elf-section-per-function: true
-            optimization: level-debug
+            optimization: level-size-Oz
             warnings: all-warnings
           global:
-            $float-abi-type: hard
-            misc-control: []
+            $float-abi-type: softfp
+            arm-thumb-mode: thumb
+            callgraph-info: true
             not-use-syscalls: true
             output-debug-info: enable
+            stack-usage: true
             use-newlib-nano: true
           linker:
             $outputTaskExcludes:
               - .bin
-            LD_FLAGS: ""
-            LIB_FLAGS: ""
+            $toolName: auto
             output-format: elf
             remove-unused-input-sections: true
         scatterFilePath: STM32G031F8PX_FLASH.ld

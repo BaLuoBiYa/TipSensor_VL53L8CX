@@ -1,14 +1,14 @@
 /**
-  *
-  * Copyright (c) 2023 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ *
+ * Copyright (c) 2023 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 
 #ifndef _PLATFORM_H_
 #define _PLATFORM_H_
@@ -17,6 +17,19 @@
 #include <stdint.h>
 #include <string.h>
 #include "stm32g0xx.h"
+
+/* ================================================================
+ * External Firmware Loading
+ * Define VL53L8CX_USE_EXTERNAL_FW to load FW from external storage
+ * instead of compiling the 84KB firmware array into MCU Flash.
+ * VL53L8CX_FW_CHUNK_SIZE controls per-read chunk size from ext memory.
+ * ================================================================ */
+#define VL53L8CX_USE_EXTERNAL_FW 1
+#define VL53L8CX_FW_CHUNK_SIZE   512
+
+#ifdef VL53L8CX_USE_EXTERNAL_FW
+uint8_t VL53L8CX_FW_Read(uint32_t offset, uint8_t *buf, uint32_t len);
+#endif
 
 /**
  * @brief Structure VL53L8CX_Platform needs to be filled by the customer,
@@ -28,13 +41,15 @@
 
 typedef struct
 {
-	/* To be filled with customer's platform. At least an I2C address/descriptor
-	 * needs to be added */
-	/* Note: For SPI example, this field is not used */
+    /* To be filled with customer's platform. At least an I2C address/descriptor
+     * needs to be added */
+    /* Note: For SPI example, this field is not used */
     uint16_t address;
 
-    /* Communication buffer used for SPI. Min size is 32800. Only given as example */
-    uint8_t spi_comm_buffer[32800];
+#ifdef VL53L8CX_USE_EXTERNAL_FW
+    /* External firmware read callback */
+    uint8_t (*read_fw)(uint32_t offset, uint8_t *buf, uint32_t len);
+#endif
 
 } VL53L8CX_Platform;
 
@@ -45,7 +60,7 @@ typedef struct
  * zone means a lower RAM). The value must be between 1 and 4.
  */
 
-#define 	VL53L8CX_NB_TARGET_PER_ZONE		1U
+#define VL53L8CX_NB_TARGET_PER_ZONE 1U
 
 /*
  * @brief The macro below can be used to avoid data conversion into the driver.
@@ -81,9 +96,9 @@ typedef struct
  */
 
 uint8_t VL53L8CX_RdByte(
-		VL53L8CX_Platform *p_platform,
-		uint16_t RegisterAdress,
-		uint8_t *p_value);
+    VL53L8CX_Platform *p_platform,
+    uint16_t RegisterAdress,
+    uint8_t *p_value);
 
 /**
  * @brief Mandatory function used to write one single byte.
@@ -95,9 +110,9 @@ uint8_t VL53L8CX_RdByte(
  */
 
 uint8_t VL53L8CX_WrByte(
-		VL53L8CX_Platform *p_platform,
-		uint16_t RegisterAdress,
-		uint8_t value);
+    VL53L8CX_Platform *p_platform,
+    uint16_t RegisterAdress,
+    uint8_t value);
 
 /**
  * @brief Mandatory function used to read multiples bytes.
@@ -110,10 +125,10 @@ uint8_t VL53L8CX_WrByte(
  */
 
 uint8_t VL53L8CX_RdMulti(
-		VL53L8CX_Platform *p_platform,
-		uint16_t RegisterAdress,
-		uint8_t *p_values,
-		uint32_t size);
+    VL53L8CX_Platform *p_platform,
+    uint16_t RegisterAdress,
+    uint8_t *p_values,
+    uint32_t size);
 
 /**
  * @brief Mandatory function used to write multiples bytes.
@@ -126,10 +141,10 @@ uint8_t VL53L8CX_RdMulti(
  */
 
 uint8_t VL53L8CX_WrMulti(
-		VL53L8CX_Platform *p_platform,
-		uint16_t RegisterAdress,
-		uint8_t *p_values,
-		uint32_t size);
+    VL53L8CX_Platform *p_platform,
+    uint16_t RegisterAdress,
+    uint8_t *p_values,
+    uint32_t size);
 
 /**
  * @brief Optional function, only used to perform an hardware reset of the
@@ -142,7 +157,7 @@ uint8_t VL53L8CX_WrMulti(
  */
 
 uint8_t VL53L8CX_Reset_Sensor(
-		VL53L8CX_Platform *p_platform);
+    VL53L8CX_Platform *p_platform);
 
 /**
  * @brief Mandatory function, used to swap a buffer. The buffer size is always a
@@ -152,8 +167,8 @@ uint8_t VL53L8CX_Reset_Sensor(
  */
 
 void VL53L8CX_SwapBuffer(
-		uint8_t 		*buffer,
-		uint16_t 	 	 size);
+    uint8_t *buffer,
+    uint16_t size);
 /**
  * @brief Mandatory function, used to wait during an amount of time. It must be
  * filled as it's used into the API.
@@ -164,7 +179,7 @@ void VL53L8CX_SwapBuffer(
  */
 
 uint8_t VL53L8CX_WaitMs(
-		VL53L8CX_Platform *p_platform,
-		uint32_t TimeMs);
+    VL53L8CX_Platform *p_platform,
+    uint32_t TimeMs);
 
-#endif	// _PLATFORM_H_
+#endif // _PLATFORM_H_

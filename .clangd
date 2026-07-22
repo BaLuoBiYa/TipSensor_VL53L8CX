@@ -8,6 +8,7 @@ CompileFlags:
     - "-mfpu=*"
     - "-mfloat-abi=*"
     - "-mcpu=*"
+    - "-fcallgraph-info"
   Add:
     # 让 clang 忽略它不认识的警告选项
     - "-Wno-unknown-warning-option"
