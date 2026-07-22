@@ -1,0 +1,53 @@
+CompileFlags:
+  CompilationDatabase: build/Debug
+  Remove:
+    # clang 不理解这些 GCC 特有的 specs 选项
+    - "--specs=nano.specs"
+    - "--specs=nosys.specs"
+    - "-mthumb"
+    - "-mfpu=*"
+    - "-mfloat-abi=*"
+    - "-mcpu=*"
+  Add:
+    # 让 clang 忽略它不认识的警告选项
+    - "-Wno-unknown-warning-option"
+    - "-Wno-unused-result"
+    # Cortex-M0+ (STM32G070) 无 FPU，使用软浮点 ABI
+    - "--target=arm-none-eabi"
+    - "-mcpu=cortex-m0plus"
+    - "-mfloat-abi=soft"
+    # 补充工具链的系统头文件路径 (newlib: reent.h 等)
+    - "-isystem/opt/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi/arm-none-eabi/include"
+
+Diagnostics:
+  # 抑制不想要的诊断
+  UnusedIncludes: None
+  MissingIncludes: None
+  Suppress:
+    - unused-result
+  # clang-tidy 检查
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - modernize-use-nullptr
+      - readability-*
+    Remove:
+      - modernize-use-trailing-return-type
+      - readability-magic-numbers
+      - readability-identifier-length
+      - readability-uppercase-literal-suffix
+      - bugprone-easily-swappable-parameters
+
+Index:
+  Background: Build
+
+Hover:
+  ShowAKA: true
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true
+
+Completion:
+  AllScopes: true
