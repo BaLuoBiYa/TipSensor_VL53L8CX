@@ -99,7 +99,8 @@
             "ms-vscode.vscode-serial-monitor",
             "dan-c-underwood.arm",
             "marus25.cortex-debug",
-			"johnny-zhao.oai-compatible-copilot"
+			"johnny-zhao.oai-compatible-copilot",
+			"openai.chatgpt"
         ]
     },
 	"launch": {

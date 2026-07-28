@@ -9,6 +9,7 @@
 /bin
 /obj
 /out
+/flash/build
 
 # eide template
 *.ept

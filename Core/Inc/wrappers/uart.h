@@ -24,7 +24,7 @@ bool UART_SendDMA(UART *uart, const uint8_t *data, uint16_t len);
 bool UART_IsTxDone(UART *uart);
 void UART_TxCpltISR(UART *uart);
 
-/*
+/**
  * UART_GetRxData: 原子性获取就绪缓冲区指针和长度
  * @return true:  data/len 有效，调用者使用后缓冲区由下次调用覆盖
  *         false: 当前无新数据
@@ -32,7 +32,7 @@ void UART_TxCpltISR(UART *uart);
  */
 bool UART_GetRxData(UART *uart, uint8_t **data, uint16_t *len);
 
-/*
+/**
  * UART_RxIdleHandler: 空闲中断处理（从 HAL_UARTEx_RxEventCallback 调用）
  * @param uart: UART 实例指针（持有 rx_event / rx_event_flag）
  * @param size: 本次接收的字节数

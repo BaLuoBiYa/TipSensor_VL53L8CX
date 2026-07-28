@@ -12,6 +12,9 @@
 
 #include "platform.h"
 #include "main.h"
+#include "drivers/w25qxx.h"
+
+extern W25Qxx w25qxx;
 
 /* Macros defined for SPI communication */
 #define VL53L8CX_COMMS_CHUNK_SIZE 4096
@@ -158,27 +161,20 @@ uint8_t VL53L8CX_WaitMs(
 #ifdef VL53L8CX_USE_EXTERNAL_FW
 
 /**
- * @brief Skeleton: Read VL53L8CX firmware from external SPI Flash.
+ * @brief Read VL53L8CX firmware from external W25Q80 SPI Flash.
  *
- * TODO: Replace with actual SPI Flash read implementation.
- *       This placeholder returns success for compile test.
+ * The firmware image is stored at offset 0x000000 in W25Q80.
+ * Called by VL53L8CX ULD during vl53l8cx_init() to stream the
+ * ~84 KB firmware into the sensor in 512-byte chunks.
  *
- * @param offset   Byte offset in firmware image
+ * @param offset   Byte offset within the firmware image
  * @param buf      Output buffer
- * @param len      Bytes to read
- * @return 0 on success
+ * @param len      Bytes to read (max VL53L8CX_FW_CHUNK_SIZE = 512)
+ * @return HAL status (0 = HAL_OK)
  */
 uint8_t VL53L8CX_FW_Read(uint32_t offset, uint8_t *buf, uint32_t len)
 {
-    (void)offset;
-    (void)buf;
-    (void)len;
-
-    /* TODO: Implement external SPI Flash read, e.g.:
-     *   ExtFlash_Read(EXT_FLASH_FW_BASE + offset, buf, len);
-     */
-
-    return 0;
+    return W25Qxx_Read(&w25qxx, offset, buf, len);
 }
 
 #endif /* VL53L8CX_USE_EXTERNAL_FW */

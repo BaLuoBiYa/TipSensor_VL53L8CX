@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include "platform.h"
 #include "vl53l8cx_api.h"
+#include "drivers/w25qxx.h"
 
 #include "wrappers/uart.h"
 
@@ -57,6 +58,7 @@
 
 VL53L8CX_Configuration Dev;
 UART rs485;
+W25Qxx w25qxx;
 
 #ifdef VL53L8CX_USE_EXTERNAL_FW
 VL53L8CX_ResultsData Results;
@@ -114,6 +116,9 @@ int main(void)
     /* USER CODE BEGIN 2 */
 
     UART_Init(&rs485, &huart2);
+
+    /* Initialize W25Q80 SPI Flash (holds VL53L8CX firmware) */
+    W25Qxx_Init(&w25qxx, &hspi1, FLASH_CS_GPIO_Port, FLASH_CS_Pin);
 
 #ifdef VL53L8CX_USE_EXTERNAL_FW
     /* Register external firmware read callback */
