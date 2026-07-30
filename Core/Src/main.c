@@ -55,16 +55,13 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
-VL53L8CX_Configuration Dev;
 UART rs485;
 W25Qxx w25qxx;
 
-#ifdef VL53L8CX_USE_EXTERNAL_FW
+VL53L8CX_Configuration tof;
 VL53L8CX_ResultsData Results;
 uint8_t isAlive, resolution, dataReady;
 int32_t status;
-#endif
 
 /* USER CODE END PV */
 
@@ -116,35 +113,39 @@ int main(void)
     /* USER CODE BEGIN 2 */
 
     UART_Init(&rs485, &huart2);
-
-    /* Initialize W25Q80 SPI Flash (holds VL53L8CX firmware) */
     W25Qxx_Init(&w25qxx, &hspi1, FLASH_CS_GPIO_Port, FLASH_CS_Pin);
 
-#ifdef VL53L8CX_USE_EXTERNAL_FW
     /* Register external firmware read callback */
-    Dev.platform.read_fw = VL53L8CX_FW_Read;
-
-    printf("VL53L8CX Ext-FW Demo Start\r\n");
-
+    tof.platform.read_fw = VL53L8CX_FW_Read;
     /* Reset sensor */
-    VL53L8CX_Reset_Sensor(&(Dev.platform));
-
+    VL53L8CX_Reset_Sensor(&(tof.platform));
     /* Check if sensor is alive */
-    status = vl53l8cx_is_alive(&Dev, &isAlive);
+    status = vl53l8cx_is_alive(&tof, &isAlive);
     if (!isAlive || status) {
-        printf("VL53L8CX not detected, status=%ld\r\n", status);
         Error_Handler();
     }
-    printf("VL53L8CX detected, initializing...\r\n");
 
     /* Initialize sensor (loads FW from external flash via callback) */
-    status = vl53l8cx_init(&Dev);
-    if (status) {
-        printf("VL53L8CX init failed, status=%ld\r\n", status);
+    status = vl53l8cx_init(&tof);
+    if (status != VL53L8CX_STATUS_OK) {
         Error_Handler();
     }
-    printf("VL53L8CX init OK\r\n");
-#endif
+
+    status |= vl53l8cx_set_resolution(&tof,
+                                      VL53L8CX_RESOLUTION_4X4);
+    status |= vl53l8cx_set_ranging_frequency_hz(&tof, 60);
+    status |= vl53l8cx_set_ranging_mode(&tof,
+                                        VL53L8CX_RANGING_MODE_CONTINUOUS);
+    status |= vl53l8cx_set_target_order(&tof,
+                                        VL53L8CX_TARGET_ORDER_STRONGEST);
+    status |= vl53l8cx_set_sharpener_percent(&tof,
+                                             10);
+
+    if (status == VL53L8CX_STATUS_OK) {
+        status = vl53l8cx_start_ranging(&tof);
+    } else {
+        Error_Handler();
+    }
 
     /* USER CODE END 2 */
 

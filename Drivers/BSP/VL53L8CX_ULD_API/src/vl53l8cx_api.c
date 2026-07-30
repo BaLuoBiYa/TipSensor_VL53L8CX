@@ -227,8 +227,9 @@ static uint8_t _vl53l8cx_download_fw_stream(
              off += VL53L8CX_FW_CHUNK_SIZE) {
 
             uint32_t chunk = fw_pages[p].size - off;
-            if (chunk > VL53L8CX_FW_CHUNK_SIZE)
+            if (chunk > VL53L8CX_FW_CHUNK_SIZE) {
                 chunk = VL53L8CX_FW_CHUNK_SIZE;
+            }
 
             /* Read from external storage into temp_buffer */
             status |= p_dev->platform.read_fw(
