@@ -20,6 +20,7 @@
 #include "main.h"
 #include "crc.h"
 #include "dma.h"
+#include "drivers/ws2812.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -59,6 +60,7 @@
 /* USER CODE BEGIN PV */
 UART rs485;
 W25Qxx w25qxx;
+WS2812 led;
 
 VL53L8CX_Configuration tof;
 uint8_t isAlive, resolution, dataReady;
@@ -66,6 +68,18 @@ int32_t status;
 
 Frame_Config_t savedConfig;
 Sensor_Buffer_t sensorBuf;
+
+static Pixel red = {
+    .index = 0,
+    .r     = 255,
+    .g     = 0,
+    .b     = 0};
+
+static Pixel green = {
+    .index = 0,
+    .r     = 0,
+    .g     = 255,
+    .b     = 0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -133,6 +147,9 @@ int main(void)
     UART_Init(&rs485, &huart2);
     W25Qxx_Init(&w25qxx, &hspi1, FLASH_CS_GPIO_Port, FLASH_CS_Pin);
     SensorBuffer_Init(&sensorBuf);
+    WS2812_Init(&led, &htim16);
+    WS2812_SetPixel(&led, &red);
+    WS2812_Show(&led);
 
     /* 从 W25Q Flash 加载持久化配置 */
     bool hasConfig = Config_LoadFromFlash(&savedConfig, &w25qxx);
@@ -173,6 +190,9 @@ int main(void)
     } else {
         Error_Handler();
     }
+
+    WS2812_SetPixel(&led, &green);
+    WS2812_Show(&led);
 
     /* USER CODE END 2 */
 

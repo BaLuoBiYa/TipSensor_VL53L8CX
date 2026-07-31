@@ -59,16 +59,16 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define WS2812_Pin GPIO_PIN_8
 #define WS2812_GPIO_Port GPIOB
-#define TOF_CS_Pin GPIO_PIN_4
-#define TOF_CS_GPIO_Port GPIOA
+#define TOF_EN_Pin GPIO_PIN_0
+#define TOF_EN_GPIO_Port GPIOA
+#define FLASH_CS_Pin GPIO_PIN_4
+#define FLASH_CS_GPIO_Port GPIOA
 #define TOF_INT_Pin GPIO_PIN_8
 #define TOF_INT_GPIO_Port GPIOA
-#define LPn_Pin GPIO_PIN_11
-#define LPn_GPIO_Port GPIOA
-#define PWR_EN_Pin GPIO_PIN_12
-#define PWR_EN_GPIO_Port GPIOA
-#define FLASH_CS_Pin GPIO_PIN_6
-#define FLASH_CS_GPIO_Port GPIOB
+#define SYNC_Pin GPIO_PIN_11
+#define SYNC_GPIO_Port GPIOA
+#define TOF_CS_Pin GPIO_PIN_12
+#define TOF_CS_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

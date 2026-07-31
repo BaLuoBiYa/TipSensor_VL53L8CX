@@ -124,13 +124,11 @@ uint8_t VL53L8CX_Reset_Sensor(VL53L8CX_Platform *p_platform)
 {
     HAL_GPIO_WritePin(TOF_CS_GPIO_Port, TOF_CS_Pin, GPIO_PIN_RESET);
 
-    /* Toggle EVK PWR EN board and Lpn pins */
-    HAL_GPIO_WritePin(LPn_GPIO_Port, LPn_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(PWR_EN_GPIO_Port, PWR_EN_Pin, GPIO_PIN_RESET);
+    /* Toggle PWR EN pins */
+    HAL_GPIO_WritePin(TOF_EN_GPIO_Port, TOF_EN_Pin, GPIO_PIN_RESET);
     HAL_Delay(100);
 
-    HAL_GPIO_WritePin(LPn_GPIO_Port, LPn_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(PWR_EN_GPIO_Port, PWR_EN_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(TOF_EN_GPIO_Port, TOF_EN_Pin, GPIO_PIN_SET);
     HAL_Delay(100);
 
     return 0;

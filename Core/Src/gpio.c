@@ -58,24 +58,17 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, TOF_CS_Pin|TOF_INT_Pin|LPn_Pin|PWR_EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, TOF_EN_Pin|FLASH_CS_Pin|TOF_INT_Pin|SYNC_Pin
+                          |TOF_CS_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : TOF_CS_Pin TOF_INT_Pin LPn_Pin PWR_EN_Pin */
-  GPIO_InitStruct.Pin = TOF_CS_Pin|TOF_INT_Pin|LPn_Pin|PWR_EN_Pin;
+  /*Configure GPIO pins : TOF_EN_Pin FLASH_CS_Pin TOF_INT_Pin SYNC_Pin
+                           TOF_CS_Pin */
+  GPIO_InitStruct.Pin = TOF_EN_Pin|FLASH_CS_Pin|TOF_INT_Pin|SYNC_Pin
+                          |TOF_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : FLASH_CS_Pin */
-  GPIO_InitStruct.Pin = FLASH_CS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(FLASH_CS_GPIO_Port, &GPIO_InitStruct);
 
 }
 
