@@ -28,12 +28,14 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdint.h>
 #include <stdio.h>
 #include "platform.h"
 #include "vl53l8cx_api.h"
 #include "drivers/w25qxx.h"
-
 #include "wrappers/uart.h"
+#include "drivers/parser.h"
+#include "drivers/sensor.h"
 
 /* USER CODE END Includes */
 
@@ -44,7 +46,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define DEVICE_ID 0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,10 +61,11 @@ UART rs485;
 W25Qxx w25qxx;
 
 VL53L8CX_Configuration tof;
-VL53L8CX_ResultsData Results;
 uint8_t isAlive, resolution, dataReady;
 int32_t status;
 
+Frame_Config_t savedConfig;
+Sensor_Buffer_t sensorBuf;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +77,21 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+static int32_t Tof_ApplyConfig(const Frame_Config_t *cfg)
+{
+    int32_t rtn;
+    rtn = vl53l8cx_set_resolution(&tof,
+                                  cfg->payload.bits.resolution ? VL53L8CX_RESOLUTION_8X8
+                                                               : VL53L8CX_RESOLUTION_4X4);
+    rtn |= vl53l8cx_set_ranging_frequency_hz(&tof,
+                                             cfg->payload.bits.framerate == 0 ? 1 : cfg->payload.bits.framerate);
+    rtn |= vl53l8cx_set_target_order(&tof,
+                                     cfg->payload.bits.target_order ? VL53L8CX_TARGET_ORDER_CLOSEST
+                                                                    : VL53L8CX_TARGET_ORDER_STRONGEST);
+    rtn |= vl53l8cx_set_sharpener_percent(&tof, cfg->sharpener);
+
+    return rtn;
+}
 /* USER CODE END 0 */
 
 /**
@@ -109,11 +127,15 @@ int main(void)
     MX_SPI1_Init();
     MX_USART2_UART_Init();
     MX_CRC_Init();
-    MX_TIM2_Init();
+    MX_TIM16_Init();
     /* USER CODE BEGIN 2 */
 
     UART_Init(&rs485, &huart2);
     W25Qxx_Init(&w25qxx, &hspi1, FLASH_CS_GPIO_Port, FLASH_CS_Pin);
+    SensorBuffer_Init(&sensorBuf);
+
+    /* 从 W25Q Flash 加载持久化配置 */
+    bool hasConfig = Config_LoadFromFlash(&savedConfig, &w25qxx);
 
     /* Register external firmware read callback */
     tof.platform.read_fw = VL53L8CX_FW_Read;
@@ -131,15 +153,20 @@ int main(void)
         Error_Handler();
     }
 
-    status |= vl53l8cx_set_resolution(&tof,
-                                      VL53L8CX_RESOLUTION_4X4);
-    status |= vl53l8cx_set_ranging_frequency_hz(&tof, 60);
+    /* 应用配置：Flash 有有效配置则用 Flash，否则用默认值 */
+    if (hasConfig) {
+        status = Tof_ApplyConfig(&savedConfig);
+    } else {
+        Frame_Config_t defaults = {
+            .payload.raw = 0,
+            .sharpener   = 10,
+        };
+        defaults.payload.bits.framerate = 60;
+        status                          = Tof_ApplyConfig(&defaults);
+    }
+
     status |= vl53l8cx_set_ranging_mode(&tof,
                                         VL53L8CX_RANGING_MODE_CONTINUOUS);
-    status |= vl53l8cx_set_target_order(&tof,
-                                        VL53L8CX_TARGET_ORDER_STRONGEST);
-    status |= vl53l8cx_set_sharpener_percent(&tof,
-                                             10);
 
     if (status == VL53L8CX_STATUS_OK) {
         status = vl53l8cx_start_ranging(&tof);
@@ -151,7 +178,68 @@ int main(void)
 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
+    uint8_t *data;
+    uint16_t len;
     while (1) {
+        __WFI();
+
+        /* 传感器 INT 触发 → 主循环完成 SPI 读取 */
+        if (sensorBuf.data_ready) {
+            sensorBuf.data_ready = false;
+            SensorBuffer_Collect(&sensorBuf, &tof);
+        }
+
+        if (UART_GetRxData(&rs485, &data, &len)) {
+            uint8_t id;
+            Frame_Mode_t mode;
+
+            if (!Frame_Parse_Header(data, &id, &mode)) {
+                continue; /* magic 不匹配，丢弃 */
+            }
+
+            if (!Frame_ValidateSize(len, mode)) {
+                continue; /* 长度不匹配，丢弃 */
+            }
+
+            if (id != DEVICE_ID) {
+                continue; /* id不匹配，丢弃 */
+            }
+
+            switch (mode) {
+                case FRAME_MODE_CONFIG: {
+                    Frame_Config_t cfg;
+                    if (Frame_Parse_Config(data, &cfg)) {
+                        status = vl53l8cx_stop_ranging(&tof);
+                        status |= Tof_ApplyConfig(&cfg);
+                        if (status == VL53L8CX_STATUS_OK) {
+                            status = vl53l8cx_start_ranging(&tof);
+                        } else {
+                            Error_Handler();
+                        }
+                        Config_SaveToFlash(&cfg, &w25qxx);
+
+                        /* 回读：将写入 Flash 的配置帧发回主机 */
+                        uint8_t echo[sizeof(Frame_Config_t)];
+                        uint32_t echoLen = Frame_Pack_Config(&cfg, echo, DEVICE_ID);
+                        UART_SendDMA(&rs485, echo, echoLen);
+                    }
+                    break;
+                }
+                case FRAME_MODE_REQUEST: {
+                    Frame_Request_t req;
+                    if (Frame_Parse_Request(data, &req)) {
+                        uint8_t tx[sizeof(Frame_8x8_Full_t)];
+                        uint32_t txLen = SensorBuffer_PackResponse(&sensorBuf, tx, DEVICE_ID);
+                        if (txLen > 0) {
+                            UART_SendDMA(&rs485, tx, txLen);
+                        }
+                    }
+                    break;
+                }
+                default:
+                    break; /* 未知 mode，丢弃 */
+            }
+        }
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */

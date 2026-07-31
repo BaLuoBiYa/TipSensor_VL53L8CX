@@ -57,8 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define WS2812_Pin GPIO_PIN_0
-#define WS2812_GPIO_Port GPIOA
+#define WS2812_Pin GPIO_PIN_8
+#define WS2812_GPIO_Port GPIOB
 #define TOF_CS_Pin GPIO_PIN_4
 #define TOF_CS_GPIO_Port GPIOA
 #define TOF_INT_Pin GPIO_PIN_8
