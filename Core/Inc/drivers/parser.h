@@ -165,6 +165,13 @@ bool Frame_ValidateSize(uint32_t raw_len, Frame_Mode_t mode);
 uint32_t Frame_Pack_Config(const Frame_Config_t *frame, uint8_t *raw, uint8_t id);
 bool Frame_Parse_Config(const uint8_t *raw, Frame_Config_t *frame);
 
+/**
+ * @brief 校验配置参数合法性（与协议文档一致）
+ *        sharpener: 0~99；framerate: 4x4 ≤ 60Hz，8x8 ≤ 15Hz
+ * @return true=参数合法
+ */
+bool Config_Validate(const Frame_Config_t *frame);
+
 uint32_t Frame_Pack_Request(const Frame_Request_t *frame, uint8_t *raw, uint8_t id);
 bool Frame_Parse_Request(const uint8_t *raw, Frame_Request_t *frame);
 

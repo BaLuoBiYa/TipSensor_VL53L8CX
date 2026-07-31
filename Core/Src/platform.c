@@ -13,11 +13,14 @@
 #include "platform.h"
 #include "main.h"
 #include "drivers/w25qxx.h"
+#include "drivers/shared_buf.h"
 
 extern W25Qxx w25qxx;
 
 /* Macros defined for SPI communication */
-#define VL53L8CX_COMMS_CHUNK_SIZE 4096
+/* chunk = 1024：与 VL53L8CX_FW_CHUNK_SIZE(512)、DCI 最大块(972B) 兼容，
+ * 且 1024+2 与共享缓冲 SHARED_SPI_CHUNK_SIZE 严格匹配 */
+#define VL53L8CX_COMMS_CHUNK_SIZE 1024
 #define SPI_WRITE_MASK(x)         (uint16_t)(x | 0x8000)  // 1
 #define SPI_READ_MASK(x)          (uint16_t)(x & ~0x8000) // 0
 
@@ -50,7 +53,7 @@ uint8_t VL53L8CX_WrMulti(
     uint32_t position  = 0;
     uint32_t data_size = 0;
     uint16_t temp;
-    uint8_t data_write[VL53L8CX_COMMS_CHUNK_SIZE + 2];
+    uint8_t *data_write = g_shared.spi_chunk; /* 共享缓冲，栈/静态零大数组 */
 
     for (position = 0; position < size; position += VL53L8CX_COMMS_CHUNK_SIZE) {
         if (size > VL53L8CX_COMMS_CHUNK_SIZE) {
@@ -93,7 +96,7 @@ uint8_t VL53L8CX_RdMulti(
     uint32_t position  = 0;
     uint32_t data_size = 0;
     uint16_t temp;
-    uint8_t data_write[VL53L8CX_COMMS_CHUNK_SIZE + 2];
+    uint8_t *data_write = g_shared.spi_chunk; /* 仅使用前 2 Byte 地址头 */
 
     for (position = 0; position < size; position += VL53L8CX_COMMS_CHUNK_SIZE) {
         if (size > VL53L8CX_COMMS_CHUNK_SIZE) {

@@ -65,6 +65,7 @@ void Error_Handler(void);
 #define FLASH_CS_GPIO_Port GPIOA
 #define TOF_INT_Pin GPIO_PIN_8
 #define TOF_INT_GPIO_Port GPIOA
+#define TOF_INT_EXTI_IRQn EXTI4_15_IRQn
 #define SYNC_Pin GPIO_PIN_11
 #define SYNC_GPIO_Port GPIOA
 #define TOF_CS_Pin GPIO_PIN_12

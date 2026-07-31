@@ -20,7 +20,6 @@
 #include "main.h"
 #include "crc.h"
 #include "dma.h"
-#include "drivers/ws2812.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -33,10 +32,12 @@
 #include <stdio.h>
 #include "platform.h"
 #include "vl53l8cx_api.h"
-#include "drivers/w25qxx.h"
 #include "wrappers/uart.h"
+#include "drivers/w25qxx.h"
 #include "drivers/parser.h"
 #include "drivers/sensor.h"
+#include "drivers/ws2812.h"
+#include "drivers/shared_buf.h"
 
 /* USER CODE END Includes */
 
@@ -154,6 +155,11 @@ int main(void)
     /* 从 W25Q Flash 加载持久化配置 */
     bool hasConfig = Config_LoadFromFlash(&savedConfig, &w25qxx);
 
+    /* Flash 配置参数越界（旧固件/CRC 撞车写入）时回退默认值，避免上电即死 */
+    if (hasConfig && !Config_Validate(&savedConfig)) {
+        hasConfig = false;
+    }
+
     /* Register external firmware read callback */
     tof.platform.read_fw = VL53L8CX_FW_Read;
     /* Reset sensor */
@@ -229,29 +235,46 @@ int main(void)
                 case FRAME_MODE_CONFIG: {
                     Frame_Config_t cfg;
                     if (Frame_Parse_Config(data, &cfg)) {
-                        status = vl53l8cx_stop_ranging(&tof);
-                        status |= Tof_ApplyConfig(&cfg);
-                        if (status == VL53L8CX_STATUS_OK) {
-                            status = vl53l8cx_start_ranging(&tof);
-                        } else {
-                            Error_Handler();
+                        int32_t apply_status = vl53l8cx_stop_ranging(&tof);
+                        apply_status |= Tof_ApplyConfig(&cfg);
+                        if (apply_status != VL53L8CX_STATUS_OK) {
+                            /* 应用失败：回滚旧配置 */
+                            if (hasConfig) {
+                                Tof_ApplyConfig(&savedConfig);
+                            }
+                            vl53l8cx_start_ranging(&tof);
+                            break;
                         }
-                        Config_SaveToFlash(&cfg, &w25qxx);
 
-                        /* 回读：将写入 Flash 的配置帧发回主机 */
-                        uint8_t echo[sizeof(Frame_Config_t)];
-                        uint32_t echoLen = Frame_Pack_Config(&cfg, echo, DEVICE_ID);
-                        UART_SendDMA(&rs485, echo, echoLen);
+                        status = vl53l8cx_start_ranging(&tof);
+                        if (status != VL53L8CX_STATUS_OK) {
+                            /* 重启失败：回滚旧配置再试一次 */
+                            if (hasConfig) {
+                                Tof_ApplyConfig(&savedConfig);
+                            }
+                            vl53l8cx_start_ranging(&tof);
+                            break;
+                        }
+
+                        /* 更新本地保存的配置（供后续回滚使用） */
+                        savedConfig = cfg;
+                        hasConfig   = true;
+
+                        /* 持久化 + 回读 echo（保存失败不回执，主机超时判定） */
+                        if (Config_SaveToFlash(&cfg, &w25qxx)) {
+                            uint8_t echo[sizeof(Frame_Config_t)];
+                            uint32_t echoLen = Frame_Pack_Config(&cfg, echo, DEVICE_ID);
+                            UART_SendDMA(&rs485, echo, echoLen);
+                        }
                     }
                     break;
                 }
                 case FRAME_MODE_REQUEST: {
                     Frame_Request_t req;
                     if (Frame_Parse_Request(data, &req)) {
-                        uint8_t tx[sizeof(Frame_8x8_Full_t)];
-                        uint32_t txLen = SensorBuffer_PackResponse(&sensorBuf, tx, DEVICE_ID);
+                        uint32_t txLen = SensorBuffer_PackResponse(&sensorBuf, g_shared.pack.raw, DEVICE_ID);
                         if (txLen > 0) {
-                            UART_SendDMA(&rs485, tx, txLen);
+                            UART_SendDMA(&rs485, g_shared.pack.raw, txLen);
                         }
                     }
                     break;

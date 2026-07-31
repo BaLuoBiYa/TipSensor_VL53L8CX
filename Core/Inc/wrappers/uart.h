@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #define UART_DMA_RX_BUF_SIZE 64
-#define UART_DMA_TX_BUF_SIZE 1
+#define UART_DMA_TX_BUF_SIZE 720
 
 typedef struct UART UART;
 

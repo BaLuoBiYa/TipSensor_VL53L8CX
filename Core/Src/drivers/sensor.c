@@ -1,4 +1,5 @@
 #include "drivers/sensor.h"
+#include "drivers/shared_buf.h"
 #include <string.h>
 
 void SensorBuffer_Init(Sensor_Buffer_t *sb)
@@ -19,6 +20,8 @@ void SensorBuffer_Collect(Sensor_Buffer_t *sb, VL53L8CX_Configuration *p_dev)
     uint8_t isReady, res;
 
     if (vl53l8cx_check_data_ready(p_dev, &isReady) != VL53L8CX_STATUS_OK || !isReady) {
+        /* 数据未就绪/读取失败：恢复标志，等下一次 INT 重试（避免丢帧） */
+        sb->data_ready = true;
         return;
     }
 
@@ -30,7 +33,9 @@ void SensorBuffer_Collect(Sensor_Buffer_t *sb, VL53L8CX_Configuration *p_dev)
 
 uint32_t SensorBuffer_PackResponse(Sensor_Buffer_t *sb, uint8_t *raw, uint8_t id)
 {
-    if (!sb->data_valid) return 0;
+    if (!sb->data_valid) {
+        return 0;
+    }
 
     VL53L8CX_ResultsData *p = &sb->data;
     uint8_t nz              = sb->resolution;
@@ -40,71 +45,71 @@ uint32_t SensorBuffer_PackResponse(Sensor_Buffer_t *sb, uint8_t *raw, uint8_t id
 
 #ifdef RESPONSE_MODE_FULL
     if (is_8x8) {
-        Frame_8x8_Full_t frame;
-        frame.silicon_temp_degc = p->silicon_temp_degc;
+        Frame_8x8_Full_t *frame  = (Frame_8x8_Full_t *)g_shared.pack.frame;
+        frame->silicon_temp_degc = p->silicon_temp_degc;
         for (uint8_t i = 0; i < 64; i++) {
 #ifndef VL53L8CX_DISABLE_NB_TARGET_DETECTED
-            frame.zones[i].nb_target_detected = p->nb_target_detected[i];
+            frame->zones[i].nb_target_detected = p->nb_target_detected[i];
 #endif
 #ifndef VL53L8CX_DISABLE_SIGNAL_PER_SPAD
-            frame.zones[i].signal_per_spad = p->signal_per_spad[i];
+            frame->zones[i].signal_per_spad = p->signal_per_spad[i];
 #endif
 #ifndef VL53L8CX_DISABLE_RANGE_SIGMA_MM
-            frame.zones[i].range_sigma_mm = p->range_sigma_mm[i];
+            frame->zones[i].range_sigma_mm = p->range_sigma_mm[i];
 #endif
 #ifndef VL53L8CX_DISABLE_DISTANCE_MM
-            frame.zones[i].distance_mm = p->distance_mm[i];
+            frame->zones[i].distance_mm = p->distance_mm[i];
 #endif
 #ifndef VL53L8CX_DISABLE_REFLECTANCE_PERCENT
-            frame.zones[i].reflectance = p->reflectance[i];
+            frame->zones[i].reflectance = p->reflectance[i];
 #endif
 #ifndef VL53L8CX_DISABLE_TARGET_STATUS
-            frame.zones[i].target_status = p->target_status[i];
+            frame->zones[i].target_status = p->target_status[i];
 #endif
         }
-        return Frame_Pack_8x8_Full(&frame, raw, id);
+        return Frame_Pack_8x8_Full(frame, raw, id);
     } else {
-        Frame_4x4_Full_t frame;
-        frame.silicon_temp_degc = p->silicon_temp_degc;
+        Frame_4x4_Full_t *frame  = (Frame_4x4_Full_t *)g_shared.pack.frame;
+        frame->silicon_temp_degc = p->silicon_temp_degc;
         for (uint8_t i = 0; i < 16; i++) {
 #ifndef VL53L8CX_DISABLE_NB_TARGET_DETECTED
-            frame.zones[i].nb_target_detected = p->nb_target_detected[i];
+            frame->zones[i].nb_target_detected = p->nb_target_detected[i];
 #endif
 #ifndef VL53L8CX_DISABLE_SIGNAL_PER_SPAD
-            frame.zones[i].signal_per_spad = p->signal_per_spad[i];
+            frame->zones[i].signal_per_spad = p->signal_per_spad[i];
 #endif
 #ifndef VL53L8CX_DISABLE_RANGE_SIGMA_MM
-            frame.zones[i].range_sigma_mm = p->range_sigma_mm[i];
+            frame->zones[i].range_sigma_mm = p->range_sigma_mm[i];
 #endif
 #ifndef VL53L8CX_DISABLE_DISTANCE_MM
-            frame.zones[i].distance_mm = p->distance_mm[i];
+            frame->zones[i].distance_mm = p->distance_mm[i];
 #endif
 #ifndef VL53L8CX_DISABLE_REFLECTANCE_PERCENT
-            frame.zones[i].reflectance = p->reflectance[i];
+            frame->zones[i].reflectance = p->reflectance[i];
 #endif
 #ifndef VL53L8CX_DISABLE_TARGET_STATUS
-            frame.zones[i].target_status = p->target_status[i];
+            frame->zones[i].target_status = p->target_status[i];
 #endif
         }
-        return Frame_Pack_4x4_Full(&frame, raw, id);
+        return Frame_Pack_4x4_Full(frame, raw, id);
     }
 #else /* RESPONSE_SLIM */
     if (is_8x8) {
-        Frame_8x8_Slim_t frame;
+        Frame_8x8_Slim_t *frame = (Frame_8x8_Slim_t *)g_shared.pack.frame;
 #ifndef VL53L8CX_DISABLE_DISTANCE_MM
-        memcpy(frame.distance, p->distance_mm, sizeof(frame.distance));
+        memcpy(frame->distance, p->distance_mm, sizeof(frame->distance));
 #else
-        memset(frame.distance, 0, sizeof(frame.distance));
+        memset(frame->distance, 0, sizeof(frame->distance));
 #endif
-        return Frame_Pack_8x8_Slim(&frame, raw, id);
+        return Frame_Pack_8x8_Slim(frame, raw, id);
     } else {
-        Frame_4x4_Slim_t frame;
+        Frame_4x4_Slim_t *frame = (Frame_4x4_Slim_t *)g_shared.pack.frame;
 #ifndef VL53L8CX_DISABLE_DISTANCE_MM
-        memcpy(frame.distance, p->distance_mm, sizeof(frame.distance));
+        memcpy(frame->distance, p->distance_mm, sizeof(frame->distance));
 #else
-        memset(frame.distance, 0, sizeof(frame.distance));
+        memset(frame->distance, 0, sizeof(frame->distance));
 #endif
-        return Frame_Pack_4x4_Slim(&frame, raw, id);
+        return Frame_Pack_4x4_Slim(frame, raw, id);
     }
 #endif
 }

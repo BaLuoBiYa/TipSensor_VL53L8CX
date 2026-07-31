@@ -1,5 +1,6 @@
 #include "drivers/parser.h"
 #include "crc.h"
+#include <stdbool.h>
 #include <string.h>
 
 /* ================================================================
@@ -96,6 +97,31 @@ bool Frame_ValidateSize(uint32_t raw_len, Frame_Mode_t mode)
  * Frame_Pack_Config / Frame_Parse_Config (mode=0, 8 Byte)
  * ================================================================ */
 
+/**
+ * @brief 校验配置参数合法性（与协议文档一致）
+ *        sharpener: 0~99；framerate: 4x4 ≤ 60Hz，8x8 ≤ 15Hz
+ * @return true=参数合法
+ */
+bool Config_Validate(const Frame_Config_t *frame)
+{
+    if (frame->sharpener > 99) {
+        return false;
+    }
+    if (frame->payload.bits.framerate < 1) {
+        return false;
+    }
+    if (frame->payload.bits.resolution == 0) {
+        if (frame->payload.bits.framerate > 60) {
+            return false;
+        }
+    } else {
+        if (frame->payload.bits.framerate > 15) {
+            return false;
+        }
+    }
+    return true;
+}
+
 uint32_t Frame_Pack_Config(const Frame_Config_t *frame, uint8_t *raw, uint8_t id)
 {
     write_header(raw, id, FRAME_MODE_CONFIG);
@@ -120,7 +146,9 @@ bool Frame_Parse_Config(const uint8_t *raw, Frame_Config_t *frame)
     frame->payload.raw     = raw[3];
     memcpy(&frame->sharpener, raw + 4, sizeof(uint16_t));
     memcpy(&frame->crc16, raw + 6, sizeof(uint16_t));
-    return true;
+
+    /* 参数合法性检查 */
+    return Config_Validate(frame);
 }
 
 /* ================================================================
@@ -280,32 +308,63 @@ bool Frame_Parse_8x8_Full(const uint8_t *raw, Frame_8x8_Full_t *frame)
 }
 
 /* ================================================================
- * 配置持久化（W25Q Flash，直接复用 Frame_Config_t）
+ * 配置持久化（W25Q Flash）
+ *   页槽位方案：每槽 8 Byte，顺序写入扇区，写满才擦除。
+ *   - 无 4KB 扇区 RAM 缓冲（栈/静态零大数组）
+ *   - Flash 磨损降 16 倍（512 槽写满才擦一次）
+ *   - Load 时校验 CRC16（旧实现只验 magic）
  * ================================================================ */
+
+#define CONFIG_SLOT_SIZE  (sizeof(Frame_Config_t))  /* 8 Byte */
+#define CONFIG_SLOT_COUNT (4096 / CONFIG_SLOT_SIZE) /* 512 槽 */
 
 bool Config_LoadFromFlash(Frame_Config_t *cfg, struct W25Qxx *flash)
 {
-    if (W25Qxx_Read(flash, CONFIG_FLASH_ADDR, (uint8_t *)cfg, sizeof(Frame_Config_t)) != 0) {
-        return false;
+    bool found = false;
+
+    /* 从槽 0 向后扫描：遇到空闲槽(首字节非 magic)即停止 */
+    for (uint32_t i = 0; i < CONFIG_SLOT_COUNT; i++) {
+        uint8_t slot[CONFIG_SLOT_SIZE];
+        uint32_t addr = CONFIG_FLASH_ADDR + i * CONFIG_SLOT_SIZE;
+
+        if (W25Qxx_Read(flash, addr, slot, sizeof(slot)) != 0) {
+            return false;
+        }
+        /* 空闲槽标记（扇区擦除后为 0xFF） */
+        if (slot[0] != FRAME_MAGIC_0 || slot[1] != FRAME_MAGIC_1) {
+            break;
+        }
+        /* magic 匹配：CRC 通过才视为有效配置（取最新） */
+        if (check_crc16(slot, CONFIG_SLOT_SIZE)) {
+            memcpy(cfg, slot, sizeof(Frame_Config_t));
+            found = true;
+        }
     }
-    /* 以 header.magic 作为有效性标记 */
-    return cfg->header.magic[0] == FRAME_MAGIC_0 && cfg->header.magic[1] == FRAME_MAGIC_1;
+
+    return found;
 }
 
 bool Config_SaveToFlash(const Frame_Config_t *cfg, struct W25Qxx *flash)
 {
-    uint8_t sector[4096];
-    uint32_t sector_addr = CONFIG_FLASH_ADDR & ~0xFFF;
-    uint32_t offset      = CONFIG_FLASH_ADDR - sector_addr;
+    /* 找第一个空闲槽 */
+    for (uint32_t i = 0; i < CONFIG_SLOT_COUNT; i++) {
+        uint8_t head;
+        uint32_t addr = CONFIG_FLASH_ADDR + i * CONFIG_SLOT_SIZE;
 
-    if (W25Qxx_Read(flash, sector_addr, sector, sizeof(sector)) != 0) {
-        return false;
+        if (W25Qxx_Read(flash, addr, &head, 1) != 0) {
+            return false;
+        }
+        if (head == 0xFF) {
+            /* 空闲槽：仅写 8 Byte（单页编程） */
+            return W25Qxx_Write(flash, addr, (const uint8_t *)cfg,
+                                CONFIG_SLOT_SIZE) == 0;
+        }
     }
 
-    memcpy(sector + offset, cfg, sizeof(Frame_Config_t));
-
-    if (W25Qxx_SectorErase(flash, sector_addr) != 0) {
+    /* 512 槽全部写满：擦除整扇区后写槽 0 */
+    if (W25Qxx_SectorErase(flash, CONFIG_FLASH_ADDR) != 0) {
         return false;
     }
-    return W25Qxx_Write(flash, sector_addr, sector, sizeof(sector)) == 0;
+    return W25Qxx_Write(flash, CONFIG_FLASH_ADDR, (const uint8_t *)cfg,
+                        CONFIG_SLOT_SIZE) == 0;
 }

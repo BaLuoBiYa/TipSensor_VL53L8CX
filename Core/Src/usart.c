@@ -21,6 +21,7 @@
 #include "usart.h"
 
 /* USER CODE BEGIN 0 */
+#include "stm32g0xx_hal_uart.h"
 #include "wrappers/uart.h"
 #include <string.h>
 extern UART rs485;
@@ -37,10 +38,19 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == rs485.huart->Instance) {
 
+        rs485.active_idx = 0;
+        rs485.ready_len  = 0;
         memset(rs485.rx_buf, 0, sizeof(rs485.rx_buf));
         memset(rs485.dma_tx_buf, 0, UART_DMA_TX_BUF_SIZE);
         HAL_UARTEx_ReceiveToIdle_DMA(rs485.huart, rs485.rx_buf[0], UART_DMA_RX_BUF_SIZE);
         __HAL_DMA_DISABLE_IT(rs485.huart->hdmarx, DMA_IT_HT);
+    }
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == rs485.huart->Instance) {
+        UART_TxCpltISR(&rs485);
     }
 }
 /* USER CODE END 0 */

@@ -56,6 +56,7 @@
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_tim16_ch1;
+extern TIM_HandleTypeDef htim16;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern UART_HandleTypeDef huart2;
@@ -144,6 +145,20 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles EXTI line 4 to 15 interrupts.
+  */
+void EXTI4_15_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI4_15_IRQn 0 */
+
+  /* USER CODE END EXTI4_15_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(TOF_INT_Pin);
+  /* USER CODE BEGIN EXTI4_15_IRQn 1 */
+
+  /* USER CODE END EXTI4_15_IRQn 1 */
+}
+
+/**
   * @brief This function handles DMA1 channel 1 interrupt.
   */
 void DMA1_Channel1_IRQHandler(void)
@@ -173,16 +188,17 @@ void DMA1_Channel2_3_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles DMA1 channel 4, channel 5 and DMAMUX1 interrupts.
+  * @brief This function handles TIM16 global interrupt.
   */
-void DMA1_Ch4_5_DMAMUX1_OVR_IRQHandler(void)
+void TIM16_IRQHandler(void)
 {
-  /* USER CODE BEGIN DMA1_Ch4_5_DMAMUX1_OVR_IRQn 0 */
+  /* USER CODE BEGIN TIM16_IRQn 0 */
 
-  /* USER CODE END DMA1_Ch4_5_DMAMUX1_OVR_IRQn 0 */
-  /* USER CODE BEGIN DMA1_Ch4_5_DMAMUX1_OVR_IRQn 1 */
+  /* USER CODE END TIM16_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim16);
+  /* USER CODE BEGIN TIM16_IRQn 1 */
 
-  /* USER CODE END DMA1_Ch4_5_DMAMUX1_OVR_IRQn 1 */
+  /* USER CODE END TIM16_IRQn 1 */
 }
 
 /**
