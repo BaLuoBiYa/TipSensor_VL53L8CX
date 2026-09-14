@@ -1,0 +1,4 @@
+{
+    "EIDE.MCP.Server.Enable": true,
+    "EIDE.MCP.Server.Port": 8940
+}

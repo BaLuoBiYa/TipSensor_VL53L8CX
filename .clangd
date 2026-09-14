@@ -13,12 +13,12 @@ CompileFlags:
     # 让 clang 忽略它不认识的警告选项
     - "-Wno-unknown-warning-option"
     - "-Wno-unused-result"
-    # Cortex-M0+ (STM32G070) 无 FPU，使用软浮点 ABI
+    # Cortex-M0+ (STM32G031) 无 FPU，使用软浮点 ABI
     - "--target=arm-none-eabi"
     - "-mcpu=cortex-m0plus"
     - "-mfloat-abi=soft"
-    # 补充工具链的系统头文件路径 (newlib: reent.h 等)
-    - "-isystem/opt/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi/arm-none-eabi/include"
+    # 补充系统头文件路径 (newlib: string.h, reent.h 等)
+    - "-isystem/usr/include/newlib"
 
 Diagnostics:
   # 抑制不想要的诊断

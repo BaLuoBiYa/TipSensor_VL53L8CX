@@ -20,24 +20,23 @@
 #include "main.h"
 #include "crc.h"
 #include "dma.h"
+#include "gpio.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
-#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include <stdint.h>
-#include <stdio.h>
+#include "drivers/parser.h"
+#include "drivers/sensor.h"
+#include "drivers/shared_buf.h"
+#include "drivers/w25qxx.h"
+#include "drivers/ws2812.h"
 #include "platform.h"
 #include "vl53l8cx_api.h"
 #include "wrappers/uart.h"
-#include "drivers/w25qxx.h"
-#include "drivers/parser.h"
-#include "drivers/sensor.h"
-#include "drivers/ws2812.h"
-#include "drivers/shared_buf.h"
+#include <stdint.h>
 
 /* USER CODE END Includes */
 
@@ -68,19 +67,20 @@ uint8_t isAlive, resolution, dataReady;
 int32_t status;
 
 Frame_Config_t savedConfig;
+bool hasConfig; /* Flash 中是否有有效配置（供配置回滚使用） */
 Sensor_Buffer_t sensorBuf;
 
 static Pixel red = {
     .index = 0,
-    .r     = 255,
-    .g     = 0,
-    .b     = 0};
+    .r = 255,
+    .g = 0,
+    .b = 0};
 
 static Pixel green = {
     .index = 0,
-    .r     = 0,
-    .g     = 255,
-    .b     = 0};
+    .r = 0,
+    .g = 255,
+    .b = 0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,6 +106,146 @@ static int32_t Tof_ApplyConfig(const Frame_Config_t *cfg)
     rtn |= vl53l8cx_set_sharpener_percent(&tof, cfg->sharpener);
 
     return rtn;
+}
+
+/**
+ * @brief 处理传感器 INT 数据就绪标志，阻塞读取一帧数据到缓冲
+ */
+static void ProcessSensorData(void)
+{
+    if (sensorBuf.data_ready)
+    {
+        sensorBuf.data_ready = false;
+        SensorBuffer_Collect(&sensorBuf, &tof);
+    }
+}
+
+/**
+ * @brief 校验接收帧：magic、长度、ID，均匹配才返回 true
+ */
+static bool HandleFrameFilter(const uint8_t *data, uint16_t len,
+                              uint8_t *id, Frame_Mode_t *mode)
+{
+    if (!Frame_Parse_Header(data, id, mode))
+    {
+        return false; /* magic 不匹配 */
+    }
+    if (!Frame_ValidateSize(len, *mode))
+    {
+        return false; /* 长度不匹配 */
+    }
+    if (*id != DEVICE_ID)
+    {
+        return false; /* id 不匹配 */
+    }
+    return true;
+}
+
+/**
+ * @brief 回滚到上次保存的配置并重启 ranging（应用/重启失败时调用）
+ */
+static void RevertAndRestart(void)
+{
+    if (hasConfig)
+    {
+        Tof_ApplyConfig(&savedConfig);
+    }
+    vl53l8cx_start_ranging(&tof);
+}
+
+/**
+ * @brief 处理配置帧（mode=0）：应用新配置，失败回滚，成功后持久化并回执 echo
+ */
+static void HandleConfigMode(const uint8_t *data)
+{
+    Frame_Config_t cfg;
+
+    if (!Frame_Parse_Config(data, &cfg))
+    {
+        return; /* 配置解析失败，丢弃 */
+    }
+
+    /* 先停止测距，再应用新配置 */
+    int32_t apply_status = vl53l8cx_stop_ranging(&tof);
+    apply_status |= Tof_ApplyConfig(&cfg);
+    if (apply_status != VL53L8CX_STATUS_OK)
+    {
+        /* 应用失败：回滚旧配置并重启 */
+        RevertAndRestart();
+        return;
+    }
+
+    /* 应用成功，重启 ranging 使新配置生效 */
+    int32_t start_status = vl53l8cx_start_ranging(&tof);
+    if (start_status != VL53L8CX_STATUS_OK)
+    {
+        /* 重启失败：回滚旧配置再试一次 */
+        RevertAndRestart();
+        return;
+    }
+
+    /* 更新本地保存的配置（供后续回滚使用） */
+    savedConfig = cfg;
+    hasConfig = true;
+
+    /* 持久化 + 回读 echo（保存失败不回执，主机超时判定） */
+    if (Config_SaveToFlash(&cfg, &w25qxx))
+    {
+        uint8_t echo[sizeof(Frame_Config_t)];
+        uint32_t echoLen = Frame_Pack_Config(&cfg, echo, DEVICE_ID);
+        UART_SendDMA(&rs485, echo, echoLen);
+    }
+}
+
+/**
+ * @brief 处理请求帧（mode=1）：打包最新一帧传感器数据回传
+ */
+static void HandleRequestMode(const uint8_t *data)
+{
+    Frame_Request_t req;
+
+    if (!Frame_Parse_Request(data, &req))
+    {
+        return; /* 请求解析失败，丢弃 */
+    }
+
+    uint32_t txLen = SensorBuffer_PackResponse(&sensorBuf, g_shared.pack.raw, DEVICE_ID);
+    if (txLen > 0)
+    {
+        UART_SendDMA(&rs485, g_shared.pack.raw, txLen);
+    }
+}
+
+/**
+ * @brief UART 帧主分发：校验帧头后按 mode 分派到各处理函数
+ */
+static void ProcessUartFrame(void)
+{
+    uint8_t *data;
+    uint16_t len;
+    uint8_t id;
+    Frame_Mode_t mode;
+
+    if (!UART_GetRxData(&rs485, &data, &len))
+    {
+        return; /* 无新数据 */
+    }
+    if (!HandleFrameFilter(data, len, &id, &mode))
+    {
+        return; /* magic/长度/ID 校验失败，丢弃 */
+    }
+
+    switch (mode)
+    {
+    case FRAME_MODE_CONFIG:
+        HandleConfigMode(data);
+        break;
+    case FRAME_MODE_REQUEST:
+        HandleRequestMode(data);
+        break;
+    default:
+        break; /* 未知 mode，丢弃 */
+    }
 }
 /* USER CODE END 0 */
 
@@ -153,10 +293,11 @@ int main(void)
     WS2812_Show(&led);
 
     /* 从 W25Q Flash 加载持久化配置 */
-    bool hasConfig = Config_LoadFromFlash(&savedConfig, &w25qxx);
+    hasConfig = Config_LoadFromFlash(&savedConfig, &w25qxx);
 
     /* Flash 配置参数越界（旧固件/CRC 撞车写入）时回退默认值，避免上电即死 */
-    if (hasConfig && !Config_Validate(&savedConfig)) {
+    if (hasConfig && !Config_Validate(&savedConfig))
+    {
         hasConfig = false;
     }
 
@@ -166,34 +307,42 @@ int main(void)
     VL53L8CX_Reset_Sensor(&(tof.platform));
     /* Check if sensor is alive */
     status = vl53l8cx_is_alive(&tof, &isAlive);
-    if (!isAlive || status) {
+    if (!isAlive || status)
+    {
         Error_Handler();
     }
 
     /* Initialize sensor (loads FW from external flash via callback) */
     status = vl53l8cx_init(&tof);
-    if (status != VL53L8CX_STATUS_OK) {
+    if (status != VL53L8CX_STATUS_OK)
+    {
         Error_Handler();
     }
 
     /* 应用配置：Flash 有有效配置则用 Flash，否则用默认值 */
-    if (hasConfig) {
+    if (hasConfig)
+    {
         status = Tof_ApplyConfig(&savedConfig);
-    } else {
+    }
+    else
+    {
         Frame_Config_t defaults = {
             .payload.raw = 0,
-            .sharpener   = 10,
+            .sharpener = 10,
         };
         defaults.payload.bits.framerate = 60;
-        status                          = Tof_ApplyConfig(&defaults);
+        status = Tof_ApplyConfig(&defaults);
     }
 
     status |= vl53l8cx_set_ranging_mode(&tof,
                                         VL53L8CX_RANGING_MODE_CONTINUOUS);
 
-    if (status == VL53L8CX_STATUS_OK) {
+    if (status == VL53L8CX_STATUS_OK)
+    {
         status = vl53l8cx_start_ranging(&tof);
-    } else {
+    }
+    else
+    {
         Error_Handler();
     }
 
@@ -204,85 +353,16 @@ int main(void)
 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
-    uint8_t *data;
-    uint16_t len;
-    while (1) {
+    while (1)
+    {
         __WFI();
 
         /* 传感器 INT 触发 → 主循环完成 SPI 读取 */
-        if (sensorBuf.data_ready) {
-            sensorBuf.data_ready = false;
-            SensorBuffer_Collect(&sensorBuf, &tof);
-        }
+        ProcessSensorData();
 
-        if (UART_GetRxData(&rs485, &data, &len)) {
-            uint8_t id;
-            Frame_Mode_t mode;
+        /* UART 帧接收 → 校验并分发处理 */
+        ProcessUartFrame();
 
-            if (!Frame_Parse_Header(data, &id, &mode)) {
-                continue; /* magic 不匹配，丢弃 */
-            }
-
-            if (!Frame_ValidateSize(len, mode)) {
-                continue; /* 长度不匹配，丢弃 */
-            }
-
-            if (id != DEVICE_ID) {
-                continue; /* id不匹配，丢弃 */
-            }
-
-            switch (mode) {
-                case FRAME_MODE_CONFIG: {
-                    Frame_Config_t cfg;
-                    if (Frame_Parse_Config(data, &cfg)) {
-                        int32_t apply_status = vl53l8cx_stop_ranging(&tof);
-                        apply_status |= Tof_ApplyConfig(&cfg);
-                        if (apply_status != VL53L8CX_STATUS_OK) {
-                            /* 应用失败：回滚旧配置 */
-                            if (hasConfig) {
-                                Tof_ApplyConfig(&savedConfig);
-                            }
-                            vl53l8cx_start_ranging(&tof);
-                            break;
-                        }
-
-                        status = vl53l8cx_start_ranging(&tof);
-                        if (status != VL53L8CX_STATUS_OK) {
-                            /* 重启失败：回滚旧配置再试一次 */
-                            if (hasConfig) {
-                                Tof_ApplyConfig(&savedConfig);
-                            }
-                            vl53l8cx_start_ranging(&tof);
-                            break;
-                        }
-
-                        /* 更新本地保存的配置（供后续回滚使用） */
-                        savedConfig = cfg;
-                        hasConfig   = true;
-
-                        /* 持久化 + 回读 echo（保存失败不回执，主机超时判定） */
-                        if (Config_SaveToFlash(&cfg, &w25qxx)) {
-                            uint8_t echo[sizeof(Frame_Config_t)];
-                            uint32_t echoLen = Frame_Pack_Config(&cfg, echo, DEVICE_ID);
-                            UART_SendDMA(&rs485, echo, echoLen);
-                        }
-                    }
-                    break;
-                }
-                case FRAME_MODE_REQUEST: {
-                    Frame_Request_t req;
-                    if (Frame_Parse_Request(data, &req)) {
-                        uint32_t txLen = SensorBuffer_PackResponse(&sensorBuf, g_shared.pack.raw, DEVICE_ID);
-                        if (txLen > 0) {
-                            UART_SendDMA(&rs485, g_shared.pack.raw, txLen);
-                        }
-                    }
-                    break;
-                }
-                default:
-                    break; /* 未知 mode，丢弃 */
-            }
-        }
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
@@ -307,26 +387,28 @@ void SystemClock_Config(void)
      * in the RCC_OscInitTypeDef structure.
      */
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState       = RCC_HSE_BYPASS;
-    RCC_OscInitStruct.PLL.PLLState   = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource  = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM       = RCC_PLLM_DIV1;
-    RCC_OscInitStruct.PLL.PLLN       = 16;
-    RCC_OscInitStruct.PLL.PLLP       = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ       = RCC_PLLQ_DIV2;
-    RCC_OscInitStruct.PLL.PLLR       = RCC_PLLR_DIV2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+    RCC_OscInitStruct.PLL.PLLN = 16;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
         Error_Handler();
     }
 
     /** Initializes the CPU, AHB and APB buses clocks
      */
-    RCC_ClkInitStruct.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1;
-    RCC_ClkInitStruct.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
     RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+    {
         Error_Handler();
     }
 }
@@ -342,9 +424,15 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
     /* USER CODE BEGIN Error_Handler_Debug */
-    /* User can add his own implementation to report the HAL error return state */
+    /* 红灯指示错误状态；WS2812 初始化完成前 led.htim==NULL，跳过亮灯 */
+    if (led.htim != NULL)
+    {
+        WS2812_SetPixel(&led, &red);
+        WS2812_Show(&led);
+    }
     __disable_irq();
-    while (1) {
+    while (1)
+    {
     }
     /* USER CODE END Error_Handler_Debug */
 }
